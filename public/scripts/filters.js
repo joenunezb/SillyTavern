@@ -1,4 +1,4 @@
-import { fuzzySearchCharacters, fuzzySearchGroups, fuzzySearchPersonas, fuzzySearchTags, fuzzySearchWorldInfo, power_user } from './power-user.js';
+import { fuzzySearchCharacters, fuzzySearchGroups, fuzzySearchPersonas, fuzzySearchTags, fuzzySearchWorldInfo, power_user, fuzzySearchCategories } from './power-user.js';
 import { tag_map } from './tags.js';
 import { includesIgnoreCaseAndAccents } from './utils.js';
 
@@ -73,12 +73,25 @@ export class FilterHelper {
     scoreCache;
 
     /**
+     * Cache for fuzzy search results per category.
+     * @type {Object.<string, { resultMap: Map<string, any> }>}
+     */
+    fuzzySearchCaches;
+
+    /**
      * Creates a new FilterHelper
      * @param {Function} onDataChanged Callback to trigger when the filter data changes
      */
     constructor(onDataChanged) {
         this.onDataChanged = onDataChanged;
         this.scoreCache = new Map();
+        this.fuzzySearchCaches = {
+            [fuzzySearchCategories.characters]: { resultMap: new Map() },
+            [fuzzySearchCategories.worldInfo]: { resultMap: new Map() },
+            [fuzzySearchCategories.personas]: { resultMap: new Map() },
+            [fuzzySearchCategories.tags]: { resultMap: new Map() },
+            [fuzzySearchCategories.groups]: { resultMap: new Map() },
+        };
     }
 
     /**
@@ -151,7 +164,7 @@ export class FilterHelper {
             return data;
         }
 
-        const fuzzySearchResults = fuzzySearchWorldInfo(data, term);
+        const fuzzySearchResults = fuzzySearchWorldInfo(data, term, this.fuzzySearchCaches);
         this.cacheScores(FILTER_TYPES.WORLD_INFO_SEARCH, new Map(fuzzySearchResults.map(i => [i.item?.uid, i.score])));
 
         const filteredData = data.filter(entity => fuzzySearchResults.find(x => x.item === entity));
@@ -170,7 +183,7 @@ export class FilterHelper {
             return data;
         }
 
-        const fuzzySearchResults = fuzzySearchPersonas(data, term);
+        const fuzzySearchResults = fuzzySearchPersonas(data, term, this.fuzzySearchCaches);
         this.cacheScores(FILTER_TYPES.PERSONA_SEARCH, new Map(fuzzySearchResults.map(i => [i.item.key, i.score])));
 
         const filteredData = data.filter(name => fuzzySearchResults.find(x => x.item.key === name));
@@ -289,9 +302,9 @@ export class FilterHelper {
 
         // Save fuzzy search results and scores if enabled
         if (power_user.fuzzy_search) {
-            const fuzzySearchCharactersResults = fuzzySearchCharacters(searchValue);
-            const fuzzySearchGroupsResults = fuzzySearchGroups(searchValue);
-            const fuzzySearchTagsResult = fuzzySearchTags(searchValue);
+            const fuzzySearchCharactersResults = fuzzySearchCharacters(searchValue, this.fuzzySearchCaches);
+            const fuzzySearchGroupsResults = fuzzySearchGroups(searchValue, this.fuzzySearchCaches);
+            const fuzzySearchTagsResult = fuzzySearchTags(searchValue, this.fuzzySearchCaches);
             this.cacheScores(FILTER_TYPES.SEARCH, new Map(fuzzySearchCharactersResults.map(i => [`character.${i.refIndex}`, i.score])));
             this.cacheScores(FILTER_TYPES.SEARCH, new Map(fuzzySearchGroupsResults.map(i => [`group.${i.item.id}`, i.score])));
             this.cacheScores(FILTER_TYPES.SEARCH, new Map(fuzzySearchTagsResult.map(i => [`tag.${i.item.id}`, i.score])));
@@ -342,11 +355,17 @@ export class FilterHelper {
      * @param {any[]} data - The data to filter.
      * @param {object} options - Optional call parameters
      * @param {boolean} [options.clearScoreCache=true] - Whether the score cache should be cleared.
+     * @param {boolean} [options.clearFuzzySearchCaches=true] - Whether the fuzzy search caches should be cleared.
      * @param {Object.<FilterType, any>} [options.tempOverrides={}] - Temporarily override specific filters for this filter application
      * @returns {any[]} The filtered data.
      */
-    applyFilters(data, { clearScoreCache = true, tempOverrides = {} } = {}) {
-        if (clearScoreCache) this.clearScoreCache();
+    applyFilters(data, { clearScoreCache = true, tempOverrides = {}, clearFuzzySearchCaches = true } = {}) {
+        if (clearScoreCache) {
+            this.clearScoreCache();
+        }
+        if (clearFuzzySearchCaches) {
+            this.clearFuzzySearchCaches();
+        }
 
         // Save original filter states
         const originalStates = {};
@@ -410,5 +429,15 @@ export class FilterHelper {
         } else {
             this.scoreCache = new Map();
         }
+    }
+
+    /**
+     * Clears the fuzzy search caches for all categories.
+     */
+    clearFuzzySearchCaches() {
+        for (const category in this.fuzzySearchCaches) {
+            this.fuzzySearchCaches[category].resultMap.clear();
+        }
+        console.log('Fuzzy search caches cleared');
     }
 }
